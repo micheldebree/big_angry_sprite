@@ -1,0 +1,13 @@
+{
+  "editor.detectIndentation": false,
+  "editor.tabSize": 4,
+  "editor.foldingStrategy": "indentation",
+  "c64.kickass": "/Users/michel/dev/github/c64-dev/KickAssembler/Kickass.jar",
+  "c64.debugger": "/Applications/C64\\ Debugger.app/Contents/MacOS/C64\\ Debugger",
+  "c64.debugger.layout": "9",
+  "editor.fontFamily": "'Jetbrains Mono','Source Code Pro', Menlo, Monaco, 'Courier New', monospace",
+"editor.fontSize": 11,
+"kickassembler.assemblerJar": "/Users/michel/dev/github/c64-dev/KickAssembler/Kickass.jar",
+"kickassembler.javaRuntime": "/usr/bin/java",
+"kickassembler.kickAssPath": "/Users/michel/dev/github/c64-dev/KickAssembler/Kickass.jar"
+}

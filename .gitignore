@@ -1,3 +1,4 @@
 *.prg
 *.dbg
 *.sym
+.*.txt

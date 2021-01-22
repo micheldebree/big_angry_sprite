@@ -273,6 +273,7 @@ irq3:
         rotateVirtualSpriteTableRight(lowerpointers)
 !skip:  lda #0
         sta skipSpritePointerRotation
+
         nextInterruptBeforeRow(4, irq4)
 irq4:
         sleep(16)
@@ -448,6 +449,7 @@ advanceScrollText:
 // this can be done anywhere where there is rastertime left, the following macro is used for that
 
 .macro rotateVirtualSpriteTableRight(table) {
+
         ldx #lowerCols - 1
         lda table + lowerCols - 1
         pha

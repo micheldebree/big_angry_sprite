@@ -1,6 +1,5 @@
 au FileType asm set ft=kickass
-set makeprg=make\ %<.prg
-noremap <F6> :wa<CR>:silent! make <bar> cwindow<CR>:redraw!<CR>
+noremap <F6> :wa<CR>:make %<.prg<bar> cwindow<CR>:redraw!<CR>
 noremap <F7> :wa<CR>:make %<.debug<bar> cwindow<CR>:redraw!<CR>
 noremap <F8> :wa<CR>:make %<.exe.prg<bar> cwindow<CR>:redraw!<CR>
 set errorformat=%EError:\ %m,%Cat\ line\ %l\\,\ column\ %c\ in\ %f,%Z
@@ -13,5 +12,4 @@ set expandtab
 set foldmethod=marker
 set foldlevel=0
 au FileType asm set commentstring=//%s
-au BufWinLeave mkview
-au BufWinEnter silent! loadview
+au FileType asm setlocal guifont=unscii-16-full:h16,C64\ Pro\ Mono:h12

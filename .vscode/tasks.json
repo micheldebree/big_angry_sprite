@@ -1,0 +1,59 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  // see https://code.visualstudio.com/docs/editor/variables-reference
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "java -jar ${config:c64.kickass} -debugdump ${relativeFile}",
+      "problemMatcher": {
+        "owner": "external",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/${relativeFileDirname}"
+        ],
+        "pattern": [
+          {
+            "regexp": "^(Warning|Error):\\s+(.*)$",
+            "severity": 1,
+            "message": 2
+          },
+          {
+            "regexp": "^.*at line\\s+(\\d+).*column\\s+(\\d+)\\s+in\\s+(.*)$",
+            "line": 1,
+            "column": 2,
+            "file": 3
+          }
+        ]
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "debug",
+      "dependsOn": "build",
+      "type": "shell",
+      "command": "${config:c64.debugger} -prg ${fileDirname}/${fileBasenameNoExtension}.prg -pass -unpause -autojmp -layout 9",
+      "windows": {
+        "command": "${config:c64.debugger} -prg ${fileDirname}/${fileBasenameNoExtension}.prg -pass -unpause -autojmp -layout 9"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    }
+  ]
+}
