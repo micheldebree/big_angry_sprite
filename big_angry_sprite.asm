@@ -64,6 +64,8 @@
 // so we can use it and also use the VIC and SID registers
 .macro copyRomChar(toAddress) {
 
+        lda $01
+        pha
         // make rom characters visible
         lda #%00110011
         sta $01
@@ -76,8 +78,7 @@
         inx
         bne !loop-
 
-        // reset to default visibility
-        lda #%00110111
+        pla
         sta $01
 }
 
@@ -711,10 +712,9 @@ handleMusicEvent:
 
 *=$1800 "Character data"
 characterData:
+  .fill 8 * $100, 0
 
-.fill 8 * $100, 0
-
-*=$2000 "Sprite data"
+*=$2000 "Terminator sprite data"
 
 spriteData:
 // layout 0  8 16 24 ..
@@ -749,38 +749,38 @@ else {
   }
 }
 
-* = * "Lower Sprites"
+* = * "Lower scroll sprite data"
 
 lowerspritedata:
   .fill lowerCols * 64, 0
 
 lowerpointers:
-.for (var i = 0; i< lowerCols; i++) {
-  .byte lowerspritedata/64 + i
-}
+  .for (var i = 0; i< lowerCols; i++) {
+    .byte lowerspritedata/64 + i
+  }
 
 lowerXLow:
-.for (var i = 0; i< lowerCols; i++) {
-  .byte i * 24
-}
+  .for (var i = 0; i< lowerCols; i++) {
+    .byte i * 24
+  }
 // the high bits of the x positions
 // because the sprites are shifting 0-23 pixels,
 // there are two tables
 lowerXHigh:
-.for (var i = 0; i< lowerCols; i++) {
-  .byte %11100000000000 >> i
-}
+  .for (var i = 0; i< lowerCols; i++) {
+    .byte %11100000000000 >> i
+  }
 lowerXHigh2:
-.for (var i = 0; i< lowerCols; i++) {
-  .byte %11110000000000 >> i
-}
+  .for (var i = 0; i< lowerCols; i++) {
+    .byte %11110000000000 >> i
+  }
 
-*=music.location "Music"
+* = music.location "Music"
 
 .fill music.size, music.getData(i)
 // }}}
 
-* = $5000
+* = * "Sine tables"
 
 // {{{ Sine data
 .const amplitude = 180
@@ -814,7 +814,7 @@ sineTablesLo:
 // 8: headbutt
       .byte <sine4,>sine4
       .byte <sine5,>sine5
-// one sine per sprite, high byte
+// one sine per 4 sprites, high byte
 sineTablesHi:
       .byte <sine1hi,>sine1hi
       .byte <sine2hi,>sine2hi
