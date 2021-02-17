@@ -142,28 +142,25 @@ start:
         lda #>nmi
         sta $fffb      // dummy NMI (Non Maskable Interupt) to avoid crashing due to RESTORE
 
-        lda #$0f
-        sta $d020
-        // lda #spritepadFile.getBackgroundColor()
-        lda #$0f
-        sta $d021
-        // lda #spritepadFile.getMultiColor1()
-        lda #$0c
-        sta $d025
-        // lda #spritepadFile.getMultiColor2()
-        lda #$0b
-        sta $d026
+        ldx #$0f
+        stx $d020
+        stx $d021
+        ldx #$0c
+        stx $d025
+        dex
+        stx $d026
 
-        // lda #spritepadFile.getSprites(63)
         lda #$00
         .for (var col=0; col < cols; col++) {
           sta $d027 + col;
         }
+        // clear the black byte that lives under the lower and upper borders
+        sta $03fff
 
-        // all sprites enabled
+        // all sprites enabled and multicolor
         lda #$ff
         sta $d015
-        multicolorSprites(true)
+        sta $d01c
 
         // set x-coordinates
         .for (var i=0; i < cols; i++) {
@@ -173,10 +170,6 @@ start:
 
         lda #%00011000
         sta $d011
-
-        // clear the black byte that lives under the lower and upper borders
-        lda #0
-       sta $03fff
 
         setInterrupt(borderline, irq_open_border)
 
@@ -382,7 +375,6 @@ irq_lower_sprites:
         }
 
 // set the sprite colors
-        multicolorSprites(false)
         ldx #$0c
         stx $d027
         stx $d027+7
@@ -394,6 +386,7 @@ irq_lower_sprites:
         stx $d027+3
         stx $d027+4
         stx $d027+5
+        stx $d01c
         jsr moveScroller
         nextInterrupt($24, irq_move_sprites)
 
@@ -633,7 +626,8 @@ irq_move_sprites:
 
 // {{{ Subroutine: Color fading
 colorFade:
-        lda colorIndex
+.label colorIndex = * + 1
+        lda #0
         and #%00000111
         beq !skip+
         dec colorIndex
@@ -648,9 +642,8 @@ colorFade:
           sta $d027 + i
         }
         rts
-.const nrFadeColors = 8
-colorIndex:
-        .byte 0
+
+.align 8
 spriteColor1:
         .byte $0c,$05,$03,$0f,$0f,$0f,$0f,$0f
 spriteColor2:
@@ -668,7 +661,6 @@ spriteColor3:
 .const commandSetSineTable2 = 4
 .const commandSetSpriteSpeed2 = 5
 .const commandSetNextSpriteSpeed0 = 7
-.const noop = $ff
 
 handleMusicEvent:
 
@@ -681,7 +673,7 @@ handleMusicEvent:
 
 !skip:  cpx #commandFade
         bne !skip+
-        ldy #nrFadeColors -1
+        ldy #(spriteColor2 - spriteColor1 - 1)
         sty colorIndex
 !skip:  cpx #commandSetSineTable0
         bne !skip+
