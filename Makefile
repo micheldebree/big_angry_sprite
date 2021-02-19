@@ -1,5 +1,5 @@
 # http://www.theweb.dk/KickAssembler
-KICKASS=/Users/michel/dev/github/c64-dev/KickAssembler/KickAss.jar
+C64JASM=npx c64jasm
 # https://sourceforge.net/projects/c64-debugger/
 DEBUGGER=/Applications/C64\ Debugger.app/Contents/MacOS/C64\ Debugger
 # DEBUGGER=start "" "C:\Program Files\C64Debugger.exe" # on Windows
@@ -9,9 +9,9 @@ EXOMIZER=/usr/local/bin/exomizer
 .PHONY: %.debug
 .PRECIOUS: %.exe.prg
 
-# Compile assembly files with KickAssembler
+# Compile assembly files with C64Jasm
 %.prg: %.asm $(KICKASS)
-	java -jar $(KICKASS) -debugdump "$<"
+	$(C64JASM) "$<" --out "$@"
 
 # Build a crunched version
 %.exe.prg: %.prg

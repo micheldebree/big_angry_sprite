@@ -2,3 +2,4 @@
 *.dbg
 *.sym
 .*.txt
+node_modules
