@@ -17,8 +17,8 @@ module.exports = ({readFileSync, resolveRelative}, filename) => {
     const res = {
         startAddress,
         data: [...buf.slice(dataOffset+2)],
-        init: startAddress,
-        play: startAddress + 3
+        init: init,
+        play: play
     }
     return res;
 }

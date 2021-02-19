@@ -1,22 +1,23 @@
 ; vim:set ft=c64jasm:fdm=marker:
 
 ; Wishes/issues:
-; - !align not documenten
+; - !align not documented
 ; - else statement needs preceding } on the same line
-; - Operator for hi/lo byte?
-; - Functions?
-; - Export multiple functions in extensions?
+; - segment names and var names clash
+; - cannot forward reference "!let sineIndex = * + 1"
 
 !use "spd" as spd
 !use "sid" as sid
 !use "text" as text
 !use "tools" as tools
 !use "math" as math
+!use "sines" as sines
+!include "macros.asm"
 
 !segment code(start=$0801, end=$17ff)
 !segment charset(start=$1800, end=$1fff)
 !segment sprites(start=$2000, end=$3fff)
-!segment music(start=$4000, end=$9fff)
+!segment musicsegment(start=$4000, end=$9fff)
 
 !let cols = 8
 
@@ -31,58 +32,6 @@
 
 !let music = sid("terminator-vfx.sid")
 !let spritepadFile = spd("arniev2.spd")
-
-!macro sleep(cycles) {
-  !for i in range(cycles) {
-    nop
-  }
-}
-
-!macro basic_start(addr) {
-* = $801
-    !byte $0c
-    !byte $08
-    !byte $00
-    !byte $00
-    !byte $9e
-
-!if (addr >= 10000) {
-    !byte $30 + (addr/10000)%10
-}
-!if (addr >= 1000) {
-    !byte $30 + (addr/1000)%10
-}
-!if (addr >= 100) {
-    !byte $30 + (addr/100)%10
-}
-!if (addr >= 10) {
-    !byte $30 + (addr/10)%10
-}
-    !byte $30 + addr % 10
-    !byte 0, 0, 0
-}
-
-; copy the character data that is hidden in the ROM underneath $d000 to a location in RAM,
-; so we can use it and also use the VIC and SID registers
-!macro copyRomChar(toAddress) {
-
-        lda $01
-        pha
-        ; make rom characters visible
-        lda #%00110011
-        sta $01
-        ldx #0
-loop:
-        !for i in range(8) {
-          lda $d000 + (i * $100),x
-          sta toAddress + (i * $100),x
-        }
-        inx
-        bne loop
-
-        pla
-        sta $01
-}
 
 !macro setInterrupt(rasterline, address) {
     lda #<address
@@ -105,16 +54,6 @@ loop:
   +nextInterrupt(spriteRasterStart - 2 + row * 21, irq)
 }
 
-
-!macro multicolorSprites(on) {
-    !if(on) {
-      lda #$ff
-    } else {
-      lda #$0
-    }
-    sta $d01c
-}
-
 !macro rotateVirtualSpriteTableRight(table) {
 
         ldx #lowerCols - 1
@@ -132,7 +71,6 @@ loop:
 !segment code
 
 +basic_start(start)
-
 
 nmi:
         rti
@@ -195,7 +133,6 @@ start:
         jmp *       ; Do nothing and let the interrupts do all the work.
 
 
-
 ; rows are numbered starting from zero
 
 ; set the y-position of a row of sprites
@@ -227,29 +164,10 @@ irq0:
         +setYpos(1)
         +nextInterruptBeforeRow(1,irq1)
 irq1:
-        ; timing so changing pointers starts at the right position of
-        ; the rasterbeam
         +sleep(16)
-        ; setting the pointers for a row of sprites
-        ; starts one rasterline before last line of the current row,
-        ; at the start of the right sideborder
-        ; because the VIC reads the spritepointer while in the sideborder,
-        ; it will just miss reading the new pointer values by a hair
-        ; so the last line will still be drawn with the data from the
-        ; original pointers, but the new pointers are already in place for
-        ; the first line of the next row
         +setPointers(1)
-        ; the y-position for the next row can be
-        ; set as soon as this row starts drawing
-        ; because changing y-position does not
-        ; have an effect before the sprite has finished
-        ; drawing
         +setYpos(2)
-        ; shift $d011 y-pos so a bad line does not occur during the next interrupt
-        ; TODO: handle bad lines by more careful timing? So we don't screw up the underlying
-        ; screen by messing with $d011
         dec $d011
-        ; some time left to do other stuff
         +rotateVirtualSpriteTableRight(lowerXLow)
 
         +nextInterruptBeforeRow(2, irq2)
@@ -257,26 +175,18 @@ irq2: ; bad line
         +sleep(17)
         +setPointers(2)
         +setYpos(3)
-        ; shift $d011 y-pos back where it was
         inc $d011
-        ; rotate the x pos for the sprites in the lower scroll
-        ; because we have some time before the next interrupt occurs
         +rotateVirtualSpriteTableRight(lowerXHigh)
         +nextInterruptBeforeRow(3, irq3)
 irq3:
         +sleep(16)
         +setPointers(3)
         +setYpos(4)
-; by setting this to a value other than zero,
-; the rotation of the pointers is skipped for one frame
-; this has the effect of rotating the pointers one place to
-; the left from the 'view' of the scroller logic
 !let skipSpritePointerRotation = * + 1
         lda #0
         bne skip
-        ; rotate the sprite pointers for the lower scroll
         +rotateVirtualSpriteTableRight(lowerpointers)
-skip:  lda #0
+skip:   lda #0
         sta skipSpritePointerRotation
 
         +nextInterruptBeforeRow(4, irq4)
@@ -285,7 +195,6 @@ irq4:
         +setPointers(4)
         +setYpos(5)
         inc $d011
-        ; rotate the high bits of the x pos for the sprites in the lower scroll
         +rotateVirtualSpriteTableRight(lowerXHigh2)
         +nextInterruptBeforeRow(5, irq5)
 irq5: ; badline
@@ -323,11 +232,8 @@ irq10: ; badline
 
         +nextInterrupt(borderline, irq_open_border)
 
+irq_open_border: {
 
-irq_open_border:
-
-        ; turn border off by switching to 24 rows
-        ; also do subsequent interrupts on line > $ff
         lda #%10010000
         sta $d011
         ; set sprite y beforehand
@@ -335,9 +241,8 @@ irq_open_border:
         !for col in range(8) {
           sta $d001 + col * 2
         }
-
         +nextInterrupt($106, irq_lower_sprites)
-
+}
 
 ; {{{ IRQ: Draw and animate sprites in lower border
 
@@ -397,27 +302,14 @@ skipSecondTable:
         jsr moveScroller
         +nextInterrupt($24, irq_move_sprites)
 
-; move the scroller to the left
-; every 24 pixels, reset, move sprite pointers to the left
-; every 8 pixels, draw a new character on the far right, out of sight
 moveScroller: {
         dec scrollShift
         bpl done
-        ; reset the 24 pixel shift
         lda #shiftWidth
         sta scrollShift
-
-        ; like in a 'normal' scroller, because we just reset the scoller 24 pixels to the right,
-        ; we need to rotate the sprite pointers to the left
-        ; but because we are also rotating to the right elsewhere because
-        ; of the sprite 'multiplexing' effect, skipping one of those
-        ; rotations will do the job
         inc skipSpritePointerRotation
         rts
-
-done:
-        ; the next character is drawn every 8 pixels
-        lda scrollShift
+done:   lda scrollShift
         and #%00000111
         beq advanceScrollText
 skip:  rts
@@ -426,36 +318,43 @@ skip:  rts
 ; -----------------------------------------------------
 
 drawNextChar: {
+
+!let copyToAddress = storeInSprite + 1
+!let copyFromAddress = loadCharacterData + 1
+
 ; x = character row to draw at
         lda spriteAddressLow,x
-        sta $f8
+        sta copyToAddress
         lda spriteAddressHigh,x
-        sta $f9
+        sta copyToAddress + 1
 loadNextChar:
-!let scrollTextIndex = * + 1
         lda scrollText
         bne notTheEnd ; 0 marks the end of the text
         ldx #<scrollText
-        stx scrollTextIndex
+        stx loadNextChar + 1
         ldx #>scrollText
-        stx scrollTextIndex + 1
+        stx loadNextChar + 2
         jmp loadNextChar
 notTheEnd:
         tax
         ; start of character data
         lda characterAddressLow,x
-        sta $fa
+        sta copyFromAddress
         lda characterAddressHigh,x
-        sta $fb
-        ldx #0
+        sta copyFromAddress + 1
+        ldx #7
         ldy #8 * 3
-onechar:
-        lda ($fa,x)
-        sta ($f8),y
+
+loadCharacterData:
+        lda characterData,x
+
+storeInSprite:
+        sta lowerspritedata,y
         dey
         dey
         dey
-        bpl onechar
+        dex
+        bpl loadCharacterData
         rts
 }
 
@@ -463,9 +362,9 @@ advanceScrollText: {
 !let newCharLocation = * + 1
         ldx #41 ; there are 42 characters
         jsr drawNextChar
-        inc drawNextChar::scrollTextIndex
+        inc drawNextChar::loadNextChar + 1
         bne skipHibyte
-        inc drawNextChar::scrollTextIndex + 1
+        inc drawNextChar::loadNextChar + 2
 skipHibyte:
         inc newCharLocation
         lda newCharLocation
@@ -477,10 +376,9 @@ skipReset:
         rts
 }
 
-
 scrollText:
 
-!byte text("come with me if you want to live")
+!byte text("come with me if you want to live ")
 
 ; .text "                                                   "
 ; .text "come with me if you want to live                                        "
@@ -561,7 +459,9 @@ irq_move_sprites: {
         +setPointers(0)
         +setYpos(0)
 
-!let sineindex = * + 1
+!let sineindex = getSineSample + 1
+
+getSineSample:
 
         ldy #(sineLength/4 + sineLength/2)
         bne nowrap
@@ -608,8 +508,8 @@ nowrap2:
         jsr handleMusicEvent
 
         +nextInterrupt(spriteRasterStart + 10, irq0)
-
 }
+
 
 colorFade: {
         lda colorIndex
@@ -698,9 +598,7 @@ spriteData:
 
 !for col in range(cols) {
   !for row in range(rows) {
-    !for b in range(spritepadFile.numSprites) {
       !byte spritepadFile.data[row * 8 + col]
-    }
   }
 }
 
@@ -728,7 +626,7 @@ lowerXHigh2:
     !byte %11110000000000 >> sprite
   }
 
-!segment music
+!segment musicsegment
 
 !byte music.data
 
