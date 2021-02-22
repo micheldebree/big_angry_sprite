@@ -1,5 +1,5 @@
 # http://www.theweb.dk/KickAssembler
-C64JASM=npx c64jasm
+C64JASM=c64jasm
 # https://sourceforge.net/projects/c64-debugger/
 DEBUGGER=/Applications/C64\ Debugger.app/Contents/MacOS/C64\ Debugger
 # DEBUGGER=start "" "C:\Program Files\C64Debugger.exe" # on Windows
@@ -11,7 +11,7 @@ EXOMIZER=/usr/local/bin/exomizer
 
 # Compile assembly files with C64Jasm
 %.prg: %.asm $(KICKASS)
-	$(C64JASM) "$<" --out "$@"
+	$(C64JASM) "$<" --c64debugger-symbols-file "$*.dbg" --out "$@"
 
 # Build a crunched version
 %.exe.prg: %.prg
@@ -20,7 +20,7 @@ EXOMIZER=/usr/local/bin/exomizer
 
 # Build and debug
 %.debug: %.prg
-	$(DEBUGGER) -prg "$*.prg" -pass -unpause -autojmp -layout 9
+	$(DEBUGGER) -prg "$*.prg" -pass -unpause -wait 2500 -autojmp -layout 9
 
 main.prg:
 
