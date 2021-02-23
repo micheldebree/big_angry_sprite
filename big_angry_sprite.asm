@@ -8,19 +8,26 @@
 
 !use "spd" as spd
 !use "sid" as sid
-!use "text" as text
-!use "tools" as tools
-!use "math" as math
 !use "sines" as sines
+!use "bytes" as bytes
 !include "macros.asm"
+
+!let music = sid("terminator-vfx.sid")
+!let getMusicEvents = music.play - 3
+!let spritepadFile = spd("arniev2.spd")
 
 !segment code(start=$0801, end=$17ff)
 !segment charset(start=$1800, end=$1fff)
 !segment sprites(start=$2000, end=$3fff)
 !segment musicsegment(start=$4000, end=$9fff)
 
-!let cols = 8
+!segment charset 
+characterData:
 
+!segment musicsegment
+!byte music.data
+
+!let cols = 8 ; nr of sprites horizontally
 !let rows = 11 ; nr of sprites vertically
 !let lowerCols = 14 ; nr of sprites in the lower border
 !let lowerSpritesY = 10 ; y position of sprites in the lower border
@@ -30,37 +37,17 @@
 !let spriteRasterStart = $33-19 ; the rasterline where the main sprites start
 !let borderline = $f8 ; the rasterline where the lower border starts
 
-!let music = sid("terminator-vfx.sid")
-!let spritepadFile = spd("arniev2.spd")
-
-!macro setInterrupt(rasterline, address) {
-    lda #<address
-    sta $fffe
-    lda #>address
-    sta $ffff
-    lda #(rasterline & $ff)
-    sta $d012
-}
-
-; we are done, it's the next interrupt's turn
-!macro nextInterrupt(rasterline, irq) {
-  +setInterrupt(rasterline, irq)
-  asl $d019
-  rti
-}
-
 ; we are done, set the next interrupt to occur just before a sprite row
 !macro nextInterruptBeforeRow(row, irq) {
   +nextInterrupt(spriteRasterStart - 2 + row * 21, irq)
 }
 
 !macro rotateVirtualSpriteTableRight(table) {
-
         ldx #lowerCols - 1
         lda table + lowerCols - 1
         pha
 loop:
-        lda table -1,x
+        lda table - 1,x
         sta table,x
         dex
         bne loop
@@ -74,7 +61,8 @@ loop:
 
 nmi:
         rti
-start:
+
+start: {
         sei             ; Turn off interrupts
         jsr music.init
         +copyRomChar(characterData)
@@ -91,24 +79,22 @@ start:
         lda #>nmi
         sta $fffb      ; dummy NMI (Non Maskable Interupt) to avoid crashing due to RESTORE
 
-        lda #$0f
-        sta $d020
-        lda #$0f
-        sta $d021
-        lda #$0c
-        sta $d025
-        lda #$0b
-        sta $d026
+        ldx #$0f
+        stx $d020
+        stx $d021
+        ldx #$0c
+        stx $d025
+        dex
+        stx $d026
 
         lda #0
-        !for col in range(cols) {
-          sta $d027 + col;
-        }
+        !for i in range(cols) { sta $d027 + i }
+        sta $3fff ; clear the black byte that lives under the lower and upper borders
 
-        ; all sprites enabled
+        ; all sprites enabled and multicolor
         lda #$ff
         sta $d015
-        +multicolorSprites(1)
+        sta $d01c
 
         ;set x-coordinates
         !for i in range(cols) {
@@ -119,19 +105,14 @@ start:
         lda #%00011000
         sta $d011
 
-        ; clear the black byte that lives under the lower and upper borders
-        lda #0
-        sta $03fff
-
         +setInterrupt(borderline, irq_open_border)
 
         lda #$01
         sta $d01a   ; Enable raster interrupts and turn interrupts back on
 
         cli
-
         jmp *       ; Do nothing and let the interrupts do all the work.
-
+}
 
 ; rows are numbered starting from zero
 
@@ -233,7 +214,6 @@ irq10: ; badline
         +nextInterrupt(borderline, irq_open_border)
 
 irq_open_border: {
-
         lda #%10010000
         sta $d011
         ; set sprite y beforehand
@@ -243,9 +223,6 @@ irq_open_border: {
         }
         +nextInterrupt($106, irq_lower_sprites)
 }
-
-; {{{ IRQ: Draw and animate sprites in lower border
-
 
 ; the sprites will shift from x pos 24 to 0 before resetting to 24
 ; at that moment, the pointers will be shifted to the left
@@ -258,7 +235,6 @@ scrollShift:
         !byte shiftWidth
 
 irq_lower_sprites:
-
         !for i in range(8) {
           lda lowerpointers + i
           sta $07f8 + i
@@ -299,220 +275,201 @@ skipSecondTable:
         stx $d027+3
         stx $d027+4
         stx $d027+5
-        jsr moveScroller
+        jsr scroller::moveScroller
         +nextInterrupt($24, irq_move_sprites)
 
-moveScroller: {
-        dec scrollShift
-        bpl done
-        lda #shiftWidth
-        sta scrollShift
-        inc skipSpritePointerRotation
-        rts
-done:   lda scrollShift
-        and #%00000111
-        beq advanceScrollText
-skip:  rts
+scroller: {
+
+  moveScroller: {
+            dec scrollShift
+            bpl done
+            lda #shiftWidth
+            sta scrollShift
+            inc skipSpritePointerRotation
+            rts
+    done:   lda scrollShift
+            and #%00000111
+            beq advanceScrollText
+    skip:  rts
+  }
+
+  drawNextChar: {
+
+    !let copyToAddress = storeInSprite + 1
+    !let copyFromAddress = loadCharacterData + 1
+
+    ; x = character row to draw at
+            lda spriteAddressLow,x
+            sta copyToAddress
+            lda spriteAddressHigh,x
+            sta copyToAddress + 1
+    loadNextChar:
+            lda scrollText
+            bne notTheEnd ; 0 marks the end of the text
+            ldx #<scrollText
+            stx loadNextChar + 1
+            ldx #>scrollText
+            stx loadNextChar + 2
+            jmp loadNextChar
+    notTheEnd:
+            tax
+            ; start of character data
+            lda characterAddressLow,x
+            sta copyFromAddress
+            lda characterAddressHigh,x
+            sta copyFromAddress + 1
+            ldx #7
+            ldy #8 * 3
+
+    loadCharacterData:
+            lda characterData,x
+
+    storeInSprite:
+            sta lowerspritedata,y
+            dey
+            dey
+            dey
+            dex
+            bpl loadCharacterData
+            rts
+  }
+
+  advanceScrollText: {
+    !let newCharLocation = * + 1
+            ldx #41 ; there are 42 characters
+            jsr drawNextChar
+            inc drawNextChar::loadNextChar + 1
+            bne skipHibyte
+            inc drawNextChar::loadNextChar + 2
+    skipHibyte:
+            inc newCharLocation
+            lda newCharLocation
+            cmp #42
+            bne skipReset
+            lda #0
+            sta newCharLocation
+    skipReset:
+            rts
+  }
+
+  scrollText:
+    !byte bytes.toScreencode("scroll.txt")
+    !byte 0
 }
-
-; -----------------------------------------------------
-
-drawNextChar: {
-
-!let copyToAddress = storeInSprite + 1
-!let copyFromAddress = loadCharacterData + 1
-
-; x = character row to draw at
-        lda spriteAddressLow,x
-        sta copyToAddress
-        lda spriteAddressHigh,x
-        sta copyToAddress + 1
-loadNextChar:
-        lda scrollText
-        bne notTheEnd ; 0 marks the end of the text
-        ldx #<scrollText
-        stx loadNextChar + 1
-        ldx #>scrollText
-        stx loadNextChar + 2
-        jmp loadNextChar
-notTheEnd:
-        tax
-        ; start of character data
-        lda characterAddressLow,x
-        sta copyFromAddress
-        lda characterAddressHigh,x
-        sta copyFromAddress + 1
-        ldx #7
-        ldy #8 * 3
-
-loadCharacterData:
-        lda characterData,x
-
-storeInSprite:
-        sta lowerspritedata,y
-        dey
-        dey
-        dey
-        dex
-        bpl loadCharacterData
-        rts
-}
-
-advanceScrollText: {
-!let newCharLocation = * + 1
-        ldx #41 ; there are 42 characters
-        jsr drawNextChar
-        inc drawNextChar::loadNextChar + 1
-        bne skipHibyte
-        inc drawNextChar::loadNextChar + 2
-skipHibyte:
-        inc newCharLocation
-        lda newCharLocation
-        cmp #42
-        bne skipReset
-        lda #0
-        sta newCharLocation
-skipReset:
-        rts
-}
-
-scrollText:
-
-!byte text("come with me if you want to live ")
-
-; .text "                                                   "
-; .text "come with me if you want to live                                        "
-; .text @"this big angry sprite was coded for raistlin's \"only sprites compo\", but didn't quite make the deadline. "
-; .text "i am very glad anyway because it's been 30 years since i coded anything on the c64, and i "
-; .text "almost forgot how much fun and how addictive it is to be coding so close to the metal! "
-; .text @"this is also a reference to one of the last things i coded on c64: the \"split personality\" part in "
-; .text @"the demo \"before you go\", made in 1990. "
-; .text "greetings go to genius, laxity, jch, reyn, sander, moren, mace, stratford, burglar, scoosie and all my fellow heatwavers. "
-; .text "special thanks to laxity and jch for the excellent sidfactory 2, and for (p)reviewing my tunes. "
-; .text "if you want to swap, send a floppy with the latest warez to the address on the disk cover (no lamerz!). "
-; .text "and don't forget to hairspray the stamp so i can send it back to you! "
-; .text "                                 hugs and kisses - youth      "
-; .text "                                       "
-!byte 0
 
 ; for each character position, the address where the data should go in the sprite
 spriteAddressLow:
   !for sprite in range(lowerCols) {
-    !for colInSprite in range(3) {
-      !byte (lowerspritedata + sprite * 64 + colInSprite);
-    }
+    !for colInSprite in range(3) { !byte (lowerspritedata + sprite * 64 + colInSprite) }
   }
+
 spriteAddressHigh:
   !for sprite in range(lowerCols) {
-    !for colInSprite in range(3) {
-      !byte (lowerspritedata + sprite * 64 + colInSprite) >> 8
-    }
+    !for colInSprite in range(3) { !byte (lowerspritedata + sprite * 64 + colInSprite) >> 8 }
   }
 
 ; for each character, the address where the character data starts, for copying into a sprite
 ; TODO: limit to only the chars that are used, to save space
 !let nrChars = 128
 characterAddressLow:
-  !for char in range(nrChars) {
-     !byte tools.lo(characterData + char * 8)
-  }
+  !for char in range(nrChars) { !byte bytes.lo(characterData + char * 8) }
+
 characterAddressHigh:
-  !for char in range(nrChars) {
-     !byte tools.hi(characterData + char * 8)
-  }
-
-!macro setXPos(col) {
-  lda sineTablesLo+2*math.floor(col/4),x
-  sta $fa
-  lda sineTablesLo+1+2*math.floor(col/4),x
-  sta $fb
-  lda sineTablesHi+2*math.floor(col/4),x
-  sta $fc
-  lda sineTablesHi+1+2*math.floor(col/4),x
-  sta $fd
-  clc
-  lda ($fa),y
-  !if (col > 0) {
-    adc #(col * 24)
-  }
-  sta $d000 + col * 2;
-  lda ($fc),y
-  adc #0
-  beq done
-
-; if the addition overflowed (carry bit is set),
-; set the corresponding high bit for the sprite x position
-  lda $d010
-  ora #(1 << col)
-  sta $d010
-done:
-}
+  !for char in range(nrChars) { !byte bytes.hi(characterData + char * 8) }
 
 irq_move_sprites: {
-        ; do subsequents interrupts on line < $ff
-        ; and switch back to 25 rows
-        lda #%00011000
-        sta $d011
 
-        lda #0
-        sta $d010
-        +setPointers(0)
-        +setYpos(0)
+  !macro setXPos(col) {
+    lda sineTablesLo+2*Math.floor(col/4),x
+    sta $fa
+    lda sineTablesLo+1+2*Math.floor(col/4),x
+    sta $fb
+    lda sineTablesHi+2*Math.floor(col/4),x
+    sta $fc
+    lda sineTablesHi+1+2*Math.floor(col/4),x
+    sta $fd
+    clc
+    lda ($fa),y
+    !if (col > 0) { adc #(col * 24) }
+    sta $d000 + col * 2;
+    lda ($fc),y
+    adc #0
+    beq done
 
-!let sineindex = getSineSample + 1
+  ; if the addition overflowed (carry bit is set),
+  ; set the corresponding high bit for the sprite x position
+    lda $d010
+    ora #(1 << col)
+    sta $d010
+  done:
+  }
 
-getSineSample:
+  ; do subsequents interrupts on line < $ff
+  ; and switch back to 25 rows
+  lda #%00011000
+  sta $d011
 
-        ldy #(sineLength/4 + sineLength/2)
-        bne nowrap
-        ; when a sine has completed, set the
-        ; pointer to the next table.
-        ; by changing this pointer, the movement will change
+  lda #0
+  sta $d010
+  +setPointers(0)
+  +setYpos(0)
 
-nextSineTablePointer:
+  ; TODO: allow forward references that are relative to *?
+  !let sineindex = getSineSample + 1
+  !let spriteMovementSpeed = advanceSineIndex + 1
+  !let sineTablePointer = nowrap + 1
 
-        lda #0
-        sta nowrap + 1
+  getSineSample:
 
-nextSpriteMovementSpeed:
+          ldy #(sineLength/4 + sineLength/2)
+          bne nowrap
+          ; when a sine has completed, set the
+          ; pointer to the next table.
+          ; by changing this pointer, the movement will change
 
-        lda #initialSpriteMovementSpeed
-        sta spriteMovementSpeed + 1
+  !let nextSineTablePointer = * + 1
 
-nowrap:
-        ldx #8 ; sine table pointer
-        +setXPos(0)
-        +setXPos(1)
-        +setXPos(2)
-        +setXPos(3)
-        +setXPos(4)
-        +setXPos(5)
-        +setXPos(6)
-        +setXPos(7)
-        +multicolorSprites(1)
+          lda #0
+          sta sineTablePointer
 
-        lda sineindex
-        clc
+  !let nextSpriteMovementSpeed = * + 1
 
-spriteMovementSpeed:
+          lda #initialSpriteMovementSpeed
+          sta spriteMovementSpeed
 
-        adc #initialSpriteMovementSpeed
-        sta sineindex
-        cmp #sineLength
-        bcc nowrap2
-        lda #0
-        sta sineindex
-nowrap2:
-        jsr colorFade
-        jsr music.play
-        jsr handleMusicEvent
+  nowrap:
+          ldx #8 ; sine table pointer
+          +setXPos(0)
+          +setXPos(1)
+          +setXPos(2)
+          +setXPos(3)
+          +setXPos(4)
+          +setXPos(5)
+          +setXPos(6)
+          +setXPos(7)
+          +multicolorSprites(1)
 
-        +nextInterrupt(spriteRasterStart + 10, irq0)
+          lda sineindex
+          clc
+
+  advanceSineIndex:
+          adc #initialSpriteMovementSpeed
+          sta sineindex
+          cmp #sineLength
+          bcc nowrap2
+          lda #0
+          sta sineindex
+  nowrap2:
+          jsr colorFade
+          jsr music.play
+          jsr handleMusicEvent
+
+          +nextInterrupt(spriteRasterStart + 10, irq0)
 }
 
-
 colorFade: {
-        lda colorIndex
+!let colorIndex = * + 1
+        lda #0
         and #%00000111
         beq stop
         dec colorIndex
@@ -523,37 +480,29 @@ stop:
         lda spriteColor2,x
         sta $d026
         lda spriteColor3,x
-        !for sprite in range(8) {
-          sta $d027 + sprite
-        }
+        !for i in range(8) { sta $d027 + i }
         rts
 
-!let nrFadeColors = 8
-
-colorIndex:
-        !byte 0
 spriteColor1:
         !byte $0c,$05,$03,$0f,$0f,$0f,$0f,$0f
 spriteColor2:
         !byte $0b,$08,$0c,$05,$03,$0f,$0f,$0f
 spriteColor3:
         !byte $00,$06,$0b,$08,$0c,$0f,$0f,$0f
-
 }
 
-; {{{ Subroutine: Handle events from the music
-; commands, used in the music with command 07 ?? xx
-!let commandFade = 1
-!let commandSetSineTable0 = 2
-!let commandSetSineTable1 = 3
-!let commandSetSineTable2 = 4
-!let commandSetSpriteSpeed2 = 5
-!let commandSetNextSpriteSpeed0 = 7
+handleMusicEvent: {
 
-handleMusicEvent:
+        ; commands, used in the music with command 07 ?? xx
+        !let commandFade = 1
+        !let commandSetSineTable0 = 2
+        !let commandSetSineTable1 = 3
+        !let commandSetSineTable2 = 4
+        !let commandSetSpriteSpeed2 = 5
+        !let commandSetNextSpriteSpeed0 = 7
 
         ; get the latest events from laxity's specialized player
-        jsr music.play - 3
+        jsr getMusicEvents
         ; a = last byte of instrument table
         ;     in case of a note-on event
         ;     or-ed together from the 3 voices
@@ -561,74 +510,60 @@ handleMusicEvent:
 
         cpx #commandFade
         bne skip1
-        ldy #(colorFade::nrFadeColors - 1)
+        ldy #(colorFade::spriteColor2 - colorFade::spriteColor1 - 1)
         sty colorFade::colorIndex
 skip1:  cpx #commandSetSineTable0
         bne skip2
         ldy #0
-        sty irq_move_sprites::nextSineTablePointer + 1
+        sty irq_move_sprites::nextSineTablePointer
 skip2:  cpx #commandSetSineTable1
         bne skip3
         ldy #4
-        sty irq_move_sprites::nextSineTablePointer+1
+        sty irq_move_sprites::nextSineTablePointer
 skip3:  cpx #commandSetSineTable2
         bne skip4
         ldy #8
-        sty irq_move_sprites::nextSineTablePointer+1
+        sty irq_move_sprites::nextSineTablePointer
 skip4:  cpx #commandSetSpriteSpeed2
         bne skip5
         ldy #2
-        sty irq_move_sprites::spriteMovementSpeed + 1
-        sty irq_move_sprites::nextSpriteMovementSpeed + 1
+        sty irq_move_sprites::spriteMovementSpeed 
+        sty irq_move_sprites::nextSpriteMovementSpeed
 skip5:  cpx #commandSetNextSpriteSpeed0
         bne skip6
         ldy #0
-        sty irq_move_sprites::nextSpriteMovementSpeed + 1
+        sty irq_move_sprites::nextSpriteMovementSpeed
 skip6:  rts
 
-
-!segment charset
-
-characterData:
-  !fill 8 * $100, 0
+}
 
 !segment sprites
 
 spriteData:
 
 !for col in range(cols) {
-  !for row in range(rows) {
-      !byte spritepadFile.data[row * 8 + col]
-  }
+  !for row in range(rows) { !byte spritepadFile.data[row * 8 + col] }
 }
 
 lowerspritedata:
   !fill lowerCols * 64, 0
 
 lowerpointers:
-  !for sprite in range(lowerCols) {
-    !byte lowerspritedata/64 + sprite
-  }
+  !for sprite in range(lowerCols) { !byte lowerspritedata/64 + sprite }
 
 lowerXLow:
-  !for sprite in range(lowerCols) {
-    !byte 24 * sprite
-  }
+  !for sprite in range(lowerCols) { !byte 24 * sprite }
+
 ; the high bits of the x positions
 ; because the sprites are shifting 0-23 pixels,
 ; there are two tables
 lowerXHigh:
-  !for sprite in range(lowerCols) {
-    !byte %11100000000000 >> sprite
-  }
+  !for sprite in range(lowerCols) { !byte %11100000000000 >> sprite }
+
 lowerXHigh2:
-  !for sprite in range(lowerCols) {
-    !byte %11110000000000 >> sprite
-  }
+  !for sprite in range(lowerCols) { !byte %11110000000000 >> sprite }
 
 !segment musicsegment
-
-!byte music.data
 
 !align $100
 
@@ -636,78 +571,51 @@ lowerXHigh2:
 !let middle = 88
 !let together = 0
 
-; .function sineCalc01(t) {
-;   .return middle + min(together, amplitude * sin(toRadians(t * 360/sineLength)))
-; }
-; .function sineCalc02(t) {
-;   .return middle + max(-together, amplitude * sin(toRadians(t * 360/sineLength)))
-; }
-; .function sineCalc03(t) {
-;   .return middle + 255 * sin(toRadians(t * 360/sineLength))
-; }
-; .function sineCalc04(t) {
-;   .return middle - abs(amplitude * sin(toRadians(t * 360/sineLength)))
-; }
-; .function sineCalc05(t) {
-;   .return middle + abs(amplitude * sin(toRadians(t * 360/sineLength)))
-; }
-
 ; one sine per 4 sprites, low byte
 sineTablesLo:
 ; 0: take turns
-      !byte tools.lohi(sine1)
-      !byte tools.lohi(sine1)
+      !byte bytes.lohi(sine1)
+      !byte bytes.lohi(sine1)
 
 ; 4: big sweep
-      !byte tools.lohi(sine1)
-      !byte tools.lohi(sine1)
-      ; !byte <sine3,>sine3
-      ; !byte <sine3,>sine3
+      !byte bytes.lohi(sine3)
+      !byte bytes.lohi(sine3)
 ; 8: headbutt
-      !byte tools.lohi(sine1)
-      !byte tools.lohi(sine1)
-      ; !byte <sine4,>sine4
-      ; !byte <sine5,>sine5
+      !byte bytes.lohi(sine4)
+      !byte bytes.lohi(sine5)
 ; one sine per 4 sprites, high byte
 sineTablesHi:
-      !byte tools.lohi(sine1hi)
-      !byte tools.lohi(sine1hi)
-      ; !byte <sine1hi,>sine1hi
-      ; !byte <sine2hi,>sine2hi
+      !byte bytes.lohi(sine1hi)
+      !byte bytes.lohi(sine2hi)
 
-      !byte tools.lohi(sine1hi)
-      !byte tools.lohi(sine1hi)
-      ; !byte <sine3hi,>sine3hi
-      ; !byte <sine3hi,>sine3hi
+      !byte bytes.lohi(sine3hi)
+      !byte bytes.lohi(sine3hi)
 
-      !byte tools.lohi(sine1hi)
-      !byte tools.lohi(sine1hi)
-      ; !byte <sine4hi,>sine4hi
-      ; !byte <sine5hi,>sine5hi
+      !byte bytes.lohi(sine4hi)
+      !byte bytes.lohi(sine5hi)
 
 sine1:
-  !byte tools.loBytes(sines.sine01(middle, amplitude, sineLength))
-
+  !byte bytes.loBytes(sines.sine01(middle, amplitude, sineLength))
 sine1hi:
-  !byte tools.hiBytes(sines.sine01(middle, amplitude, sineLength))
+  !byte bytes.hiBytes(sines.sine01(middle, amplitude, sineLength))
 
-; sine2:
-;   !fill sineLength, <sineCalc02(i)
-; sine2hi:
-;   !fill sineLength, >sineCalc02(i)
-;
-; sine3:
-;   !fill sineLength, <sineCalc03(i)
-; sine3hi:
-;   !fill sineLength, >sineCalc03(i)
-;
-; sine4:
-;   !fill sineLength, <sineCalc04(i)
-; sine4hi:
-;   !fill sineLength, >sineCalc04(i)
-;
-; sine5:
-;   !fill sineLength, <sineCalc05(i)
-; sine5hi:
-;   !fill sineLength, >sineCalc05(i)
-;
+sine2:
+  !byte bytes.loBytes(sines.sine02(middle, amplitude, sineLength))
+sine2hi:
+  !byte bytes.hiBytes(sines.sine02(middle, amplitude, sineLength))
+
+sine3:
+  !byte bytes.loBytes(sines.sine03(middle, 255, sineLength))
+sine3hi:
+  !byte bytes.hiBytes(sines.sine03(middle, 255, sineLength))
+
+sine4:
+  !byte bytes.loBytes(sines.sine04(middle, amplitude, sineLength))
+sine4hi:
+  !byte bytes.hiBytes(sines.sine04(middle, amplitude, sineLength))
+
+sine5:
+  !byte bytes.loBytes(sines.sine05(middle, amplitude, sineLength))
+sine5hi:
+  !byte bytes.hiBytes(sines.sine05(middle, amplitude, sineLength))
+

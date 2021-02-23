@@ -20,7 +20,7 @@ EXOMIZER=/usr/local/bin/exomizer
 
 # Build and debug
 %.debug: %.prg
-	$(DEBUGGER) -prg "$*.prg" -pass -unpause -wait 2500 -autojmp -layout 9
+	$(DEBUGGER) -prg "$*.prg" -pass -unpause -wait 3000 -autojmp -layout 9
 
 main.prg:
 

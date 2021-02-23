@@ -11,7 +11,6 @@ module.exports = ({readFileSync, resolveRelative}, filename) => {
         }
         data.push(bytes);
     }
-    console.log(data.length)
     return {
         numSprites,
         enableMask: (1<<numSprites)-1,

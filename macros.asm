@@ -59,3 +59,17 @@ loop:
     sta $d01c
 }
 
+!macro setInterrupt(rasterline, address) {
+    lda #<address
+    sta $fffe
+    lda #>address
+    sta $ffff
+    lda #(rasterline & $ff)
+    sta $d012
+}
+
+!macro nextInterrupt(rasterline, irq) {
+  +setInterrupt(rasterline, irq)
+  asl $d019
+  rti
+}
